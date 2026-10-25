@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1d5bb8">
+<title>Budget</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a monthly ledger — summary strip on top, then paired ledgers (out to home | spent here), then plans and tools. */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --sunk: #eaeef3;
+  --ink: #121720;
+  --ink-2: #485263;
+  --ink-3: #737e8f;
+  --line: #dbe1e8;
+  --accent: #1d5bb8;
+  --accent-soft: #e3ecf9;
+  --home: #2a78d6;
+  --spend: #eb6834;
+  --left: #1baf7a;
+  --good: #187a47;
+  --warn: #a66200;
+  --bad: #c3312e;
+  --bad-soft: #fbe7e6;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1115; --surface: #161a20; --sunk: #1d232b; --ink: #edf0f4; --ink-2: #b3bcc8; --ink-3: #848e9c;
+    --line: #2a313b; --accent: #73a6f0; --accent-soft: #1c2a3f; --home: #3987e5; --spend: #d95926; --left: #199e70;
+    --good: #45c486; --warn: #e2a33a; --bad: #f06e6a; --bad-soft: #3a1c1c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1115; --surface: #161a20; --sunk: #1d232b; --ink: #edf0f4; --ink-2: #b3bcc8; --ink-3: #848e9c;
+  --line: #2a313b; --accent: #73a6f0; --accent-soft: #1c2a3f; --home: #3987e5; --spend: #d95926; --left: #199e70;
+  --good: #45c486; --warn: #e2a33a; --bad: #f06e6a; --bad-soft: #3a1c1c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 20px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.05; }
+h2 { font-size: 20px; }
+.eyebrow { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-3); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: end; justify-content: space-between; }
+.month-nav { display: flex; align-items: center; gap: 10px; }
+.month-nav .arrow { width: 40px; height: 40px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 18px; display: grid; place-items: center; }
+.month-nav .arrow:hover { border-color: var(--accent); color: var(--accent); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.rate { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 6px 4px 14px; font-size: 14px; color: var(--ink-2); }
+.rate input { width: 86px; text-align: right; border: 0; background: var(--sunk); border-radius: 999px; padding: 6px 10px; font-family: var(--font-num); color: var(--ink); font-size: 14px; }
+.seg { display: inline-flex; background: var(--sunk); border-radius: 999px; padding: 3px; }
+.seg button { border: 0; background: transparent; padding: 7px 14px; border-radius: 999px; font-weight: 600; font-size: 13px; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.status { font-size: 12px; color: var(--ink-3); min-height: 18px; }
+
+/* summary */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 4px; min-width: 0; }
+.tile .k { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.tile .v { font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 3.6vw, 30px); line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile .s { font-family: var(--font-num); font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.tile.over { border-color: var(--bad); background: var(--bad-soft); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+.pill.bad { color: var(--bad); background: var(--bad-soft); }
+.pill.good { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+
+/* allocation bar */
+.alloc { display: grid; gap: 10px; }
+.bar { display: flex; gap: 2px; height: 22px; border-radius: 6px; overflow: hidden; background: var(--sunk); }
+.bar > div { height: 100%; min-width: 0; transition: flex-basis .25s; }
+.bar > div:first-child { border-radius: 4px 0 0 4px; }
+.bar > div:last-child { border-radius: 0 4px 4px 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend b { font-family: var(--font-num); font-weight: 500; color: var(--ink); }
+
+/* panels */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; justify-content: space-between; }
+.panel-head p { margin: 0; font-size: 13px; color: var(--ink-3); }
+.scroll { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; padding: 0 6px 6px; white-space: nowrap; }
+th.r, td.r { text-align: right; }
+td { padding: 3px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+tfoot td { border-top: 2px solid var(--ink-3); font-weight: 600; padding: 8px 6px; }
+td input[type="text"], td select { width: 100%; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 7px; padding: 6px 6px; font: inherit; color: var(--ink); }
+td input[type="text"]:hover, td select:hover { border-color: var(--line); }
+td input[type="text"]:focus { border-color: var(--accent); background: var(--surface); outline: none; }
+td input.n { text-align: right; font-family: var(--font-num); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+td input.n::placeholder { color: var(--ink-3); opacity: .8; font-style: italic; }
+td select { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 6px 2px; }
+td.calc { font-family: var(--font-num); font-size: 13px; color: var(--ink-2); text-align: right; white-space: nowrap; padding: 6px; }
+td.del { width: 30px; text-align: center; }
+.x { border: 0; background: transparent; color: var(--ink-3); width: 28px; height: 28px; border-radius: 6px; font-size: 16px; line-height: 1; }
+.x:hover { color: var(--bad); background: var(--bad-soft); }
+input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+tr.done input[type="text"]:not(.n) { text-decoration: line-through; color: var(--ink-3); }
+tr.over td.calc { color: var(--bad); font-weight: 600; }
+.add { justify-self: start; border: 1px dashed var(--line); background: transparent; border-radius: 9px; padding: 7px 12px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.add:hover { border-color: var(--accent); background: var(--accent-soft); }
+.note { font-size: 13px; color: var(--ink-2); background: var(--sunk); border-radius: 10px; padding: 10px 12px; }
+.note .num { color: var(--ink); }
+
+/* spending chart */
+.sbars { display: grid; gap: 8px; }
+.srow { display: grid; grid-template-columns: minmax(90px, 160px) minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.srow .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.strack { position: relative; height: 12px; background: var(--sunk); border-radius: 4px; }
+.strack .plan { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: color-mix(in srgb, var(--spend) 28%, transparent); }
+.strack .act { position: absolute; inset: 2px auto 2px 0; border-radius: 3px; background: var(--spend); }
+.strack .act.over { background: var(--bad); }
+.srow .val { font-family: var(--font-num); font-size: 12px; color: var(--ink-2); white-space: nowrap; text-align: right; }
+
+/* trend */
+.trend svg { width: 100%; height: auto; display: block; }
+.trend text { fill: var(--ink-3); font-family: var(--font-num); font-size: 11px; }
+.trend .grid { stroke: var(--line); stroke-width: 1; }
+
+/* tools */
+.tool { display: grid; gap: 12px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.field { display: grid; gap: 4px; font-size: 12px; color: var(--ink-3); font-weight: 600; }
+.field input, .field select { border: 1px solid var(--line); background: var(--bg); border-radius: 9px; padding: 8px 10px; font-family: var(--font-num); font-size: 14px; color: var(--ink); width: 100%; min-width: 0; }
+.result { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; }
+.result .big { font-family: var(--font-display); font-weight: 700; font-size: 26px; font-variant-numeric: tabular-nums; }
+.btn { border: 0; background: var(--accent); color: var(--surface); border-radius: 9px; padding: 8px 14px; font-weight: 600; font-size: 13px; }
+.btn.ghost { background: var(--accent-soft); color: var(--accent); }
+
+/* empty */
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 16px; padding: 28px 20px; display: grid; gap: 12px; justify-items: start; }
+.empty .row { display: flex; flex-wrap: wrap; gap: 10px; }
+
+#tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 6px 9px; border-radius: 7px; max-width: 260px; font-family: var(--font-num); line-height: 1.4; white-space: pre-line; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* sign-in */
+.auth { min-height: 80vh; display: grid; place-items: center; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.auth form { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 26px 22px; display: grid; gap: 14px; }
+.auth .field input { font-family: var(--font-body); }
+.auth .btn { padding: 11px 14px; font-size: 14px; }
+.linkbtn { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13px; padding: 0; justify-self: start; }
+.msg { font-size: 13px; border-radius: 9px; padding: 9px 11px; background: var(--sunk); color: var(--ink-2); }
+.msg.err { background: var(--bad-soft); color: var(--bad); }
+.foot { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="auth" id="auth" hidden>
+  <form id="authForm" novalidate>
+    <div style="display:grid;gap:4px"><span class="eyebrow">SAR &amp; UGX</span><h1 style="font-size:32px" id="authTitle">Budget</h1></div>
+    <label class="field">Email<input id="authEmail" type="email" autocomplete="email" required></label>
+    <label class="field" id="authPwWrap">Password<input id="authPw" type="password" autocomplete="current-password" minlength="8" required></label>
+    <div class="msg" id="authMsg" hidden></div>
+    <button class="btn" type="submit" id="authSubmit">Sign in</button>
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px">
+      <button class="linkbtn" type="button" id="authToggle">Create an account</button>
+      <button class="linkbtn" type="button" id="authForgot">Forgot password?</button>
+    </div>
+  </form>
+</div>
+<div id="app" hidden>
+
+<div class="wrap">
+  <header class="top">
+    <div style="display:grid;gap:6px">
+      <span class="eyebrow">2026 Budget · SAR &amp; UGX</span>
+      <div class="month-nav">
+        <button class="arrow" id="prev" aria-label="Previous month">‹</button>
+        <h1 id="monthTitle">November 2026</h1>
+        <button class="arrow" id="next" aria-label="Next month">›</button>
+      </div>
+      <div class="status" id="status">Loading your budget…</div>
+    </div>
+    <div class="controls">
+      <label class="rate" for="rateInput">1 SAR = <input id="rateInput" type="text" inputmode="decimal" value="1,000"> UGX</label>
+      <div class="seg" role="group" aria-label="Show totals in">
+        <button id="curSAR" aria-pressed="true">SAR</button>
+        <button id="curUGX" aria-pressed="false">UGX</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" style="display:grid;gap:28px"></main>
+  <footer class="foot">
+    <span id="who"></span>
+    <span style="display:flex;gap:16px;flex-wrap:wrap">
+      <button class="linkbtn" id="backupBtn">Download backup</button>
+      <button class="linkbtn" id="signOutBtn">Sign out</button>
+    </span>
+  </footer>
+</div>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+(function () {
+  // ---------- helpers ----------
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const rid = () => Math.random().toString(36).slice(2, 10);
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const parseNum = s => { const t = String(s ?? "").replace(/[,\s]/g, ""); if (t === "") return null; const n = Number(t); return isFinite(n) ? n : null; };
+  const fmtN = (n, d = 0) => (n == null ? "" : Number(n).toLocaleString("en-US", { maximumFractionDigits: d }));
+  const fmtSar = n => "SAR " + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const fmtUgx = n => "UGX " + Math.round(n || 0).toLocaleString("en-US");
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const ymOf = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  const ymLabel = ym => { const [y, m] = ym.split("-").map(Number); return MONTHS[m - 1] + " " + y; };
+  const ymShort = ym => { const [y, m] = ym.split("-").map(Number); return MONTHS[m - 1].slice(0, 3) + " ’" + String(y).slice(2); };
+  const ymAdd = (ym, k) => { const [y, m] = ym.split("-").map(Number); return ymOf(new Date(y, m - 1 + k, 1)); };
+
+  const DEFAULT_CONFIG = {
+    savings: [], growthPct: 10, years: 5, wishlist: [],
+    ot: { salary: 3200, hours: 0, mult: 1.5 }, fx: { amount: 1000, dir: "sar", feePct: 1 }
+  };
+
+  // ---------- state ----------
+  const S = { months: {}, config: null, ym: ymOf(new Date()), loaded: false, user: null };
+  let display = "SAR";
+  try { display = localStorage.getItem("budget.display") || "SAR"; } catch (e) {}
+  const dirty = new Set(), timers = {}, inflight = {}, ver = {};
+
+  const month = () => S.months[S.ym] || null;
+  const cfg = () => S.config || (S.config = clone(DEFAULT_CONFIG));
+  const rate = () => (month()?.rate) || lastRate() || 1000;
+  function lastRate() { const ks = Object.keys(S.months).sort(); for (let i = ks.length - 1; i >= 0; i--) if (S.months[ks[i]].rate) return S.months[ks[i]].rate; return null; }
+  const toSar = (amt, cur, r = rate()) => (cur === "UGX" ? (amt || 0) / r : (amt || 0));
+  const show = (sar, r = rate()) => (display === "SAR" ? fmtSar(sar) : fmtUgx(sar * r));
+  const other = (sar, r = rate()) => (display === "SAR" ? fmtUgx(sar * r) : fmtSar(sar));
+
+  function totals(m) {
+    if (!m) return null;
+    const r = m.rate || rate();
+    const income = (m.income || []).reduce((a, x) => a + toSar(x.amt, x.cur, r), 0);
+    const homeSar = (m.home || []).reduce((a, x) => a + (x.sar || 0), 0);
+    const homeUgx = (m.home || []).reduce((a, x) => a + (x.ugx != null ? x.ugx : (x.sar || 0) * r), 0);
+    const plan = (m.spend || []).reduce((a, x) => a + toSar(x.plan, x.cur, r), 0);
+    const spentLogged = (m.spend || []).some(x => x.spent != null);
+    const spent = (m.spend || []).reduce((a, x) => a + toSar(x.spent, x.cur, r), 0);
+    const spendUse = (m.spend || []).reduce((a, x) => a + toSar(x.spent != null ? Math.max(x.spent, x.plan || 0) : x.plan, x.cur, r), 0);
+    return { r, income, homeSar, homeUgx, plan, spent, spentLogged, spendUse, left: income - homeSar - spendUse };
+  }
+
+  // ---------- persistence ----------
+  function setStatus(t) { $("#status").textContent = t; }
+  function saveLocal() { try { localStorage.setItem("budget.data", JSON.stringify({ months: S.months, config: S.config })); } catch (e) {} }
+  function schedule(key) {
+    dirty.add(key);
+    ver[key] = (ver[key] || 0) + 1;
+    setStatus("Saving…");
+    clearTimeout(timers[key]);
+    timers[key] = setTimeout(() => flush(key), 700);
+  }
+  async function flush(key) {
+    if (inflight[key]) { timers[key] = setTimeout(() => flush(key), 400); return; }
+    const body = key === "config" ? S.config : S.months[key];
+    if (!body || !S.user) { dirty.delete(key); return; }
+    inflight[key] = true;
+    const v = ver[key];
+    try {
+      const now = new Date().toISOString();
+      const { error } = key === "config"
+        ? await sb.from("budget_config").upsert({ user_id: S.user.id, data: clone(body), updated_at: now }, { onConflict: "user_id" })
+        : await sb.from("budget_months").upsert({ user_id: S.user.id, ym: key, data: clone(body), updated_at: now }, { onConflict: "user_id,ym" });
+      if (error) throw error;
+      saveLocal();
+      setStatus("All changes saved");
+    } catch (e) {
+      saveLocal();
+      setStatus("Couldn’t reach the server. Saved on this device; your next edit will try again.");
+    } finally {
+      inflight[key] = false;
+      if (ver[key] === v) dirty.delete(key);
+    }
+  }
+  function touchMonth() { schedule(S.ym); }
+  function touchConfig() { schedule("config"); }
+
+  // ---------- Supabase ----------
+  const SUPABASE_URL = "https://xhgnyzojzpungdvvxkkt.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_xACqLQZ6R0xzE_rxbCoiIw_16FulOeD";
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  async function loadAll() {
+    const [m, c] = await Promise.all([
+      sb.from("budget_months").select("ym,data"),
+      sb.from("budget_config").select("data").maybeSingle()
+    ]);
+    if (m.error || c.error) throw (m.error || c.error);
+    const months = {};
+    (m.data || []).forEach(r => { months[r.ym] = r.data || {}; });
+    Object.keys(months).forEach(k => { if (!dirty.has(k)) S.months[k] = months[k]; });
+    Object.keys(S.months).forEach(k => { if (!months[k] && !dirty.has(k)) delete S.months[k]; });
+    if (!dirty.has("config")) S.config = c.data ? { ...clone(DEFAULT_CONFIG), ...c.data.data } : S.config;
+  }
+
+  async function start(user) {
+    if (S.user && S.user.id === user.id) return;
+    S.user = user;
+    $("#auth").hidden = true; $("#app").hidden = false;
+    $("#who").textContent = "Signed in as " + (user.email || "you");
+    renderAll();
+    try { await loadAll(); setStatus("Saved to your account"); }
+    catch (e) {
+      try { const raw = JSON.parse(localStorage.getItem("budget.data") || "null"); if (raw) { S.months = raw.months || {}; S.config = raw.config || null; } } catch (x) {}
+      setStatus("Couldn’t reach the server. Showing the copy saved on this device.");
+    }
+    S.loaded = true; pickStartMonth(); renderAll();
+  }
+
+  async function boot() {
+    const { data } = await sb.auth.getSession();
+    if (data.session) start(data.session.user); else showAuth("signin");
+    sb.auth.onAuthStateChange((ev, session) => {
+      if (ev === "PASSWORD_RECOVERY") { showAuth("reset"); return; }
+      if (ev === "SIGNED_IN" && session && authMode !== "reset") start(session.user);
+      if (ev === "SIGNED_OUT") { try { localStorage.removeItem("budget.data"); } catch (e) {} location.reload(); }
+    });
+    document.addEventListener("visibilitychange", async () => {
+      if (document.visibilityState !== "visible" || !S.user || dirty.size) return;
+      try { await loadAll(); refreshFromRemote(); } catch (e) {}
+    });
+  }
+
+  // ---------- sign-in screen ----------
+  let authMode = "signin";
+  function showAuth(mode) {
+    authMode = mode;
+    $("#app").hidden = true; $("#auth").hidden = false;
+    const t = { signin: ["Budget", "Sign in", "Create an account"], signup: ["Create your account", "Create account", "I already have an account"], forgot: ["Reset password", "Send reset link", "Back to sign in"], reset: ["Choose a new password", "Save password", ""] }[mode];
+    $("#authTitle").textContent = t[0]; $("#authSubmit").textContent = t[1];
+    $("#authToggle").textContent = t[2]; $("#authToggle").hidden = !t[2];
+    $("#authForgot").hidden = mode !== "signin";
+    $("#authPwWrap").hidden = mode === "forgot";
+    $("#authEmail").closest("label").hidden = mode === "reset";
+    $("#authPw").autocomplete = mode === "signin" ? "current-password" : "new-password";
+    authMsg("");
+  }
+  function authMsg(t, err) { const el = $("#authMsg"); el.hidden = !t; el.textContent = t; el.classList.toggle("err", !!err); }
+  $("#authToggle").onclick = () => showAuth(authMode === "signin" ? "signup" : "signin");
+  $("#authForgot").onclick = () => showAuth("forgot");
+  $("#authForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const email = $("#authEmail").value.trim(), password = $("#authPw").value;
+    if (authMode !== "reset" && !/^\S+@\S+\.\S+$/.test(email)) return authMsg("Enter your email address.", true);
+    if (authMode !== "forgot" && password.length < 8) return authMsg("Use a password of at least 8 characters.", true);
+    const btn = $("#authSubmit"); btn.disabled = true;
+    try {
+      if (authMode === "signin") {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) authMsg(error.message === "Email not confirmed" ? "Confirm your email first. Check your inbox for the link." : "Email or password is wrong.", true);
+      } else if (authMode === "signup") {
+        const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+        if (error) authMsg(error.message, true);
+        else if (!data.session) authMsg("Account created. Open the confirmation email we just sent, then sign in.");
+      } else if (authMode === "forgot") {
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+        authMsg(error ? error.message : "If that email has an account, a reset link is on its way.", !!error);
+      } else if (authMode === "reset") {
+        const { data, error } = await sb.auth.updateUser({ password });
+        if (error) authMsg(error.message, true); else { authMode = "signin"; start(data.user); }
+      }
+    } catch (x) { authMsg("Couldn’t reach the server. Check your connection and try again.", true); }
+    finally { btn.disabled = false; }
+  });
+
+  $("#signOutBtn").onclick = () => sb.auth.signOut();
+  $("#backupBtn").onclick = () => {
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), months: S.months, config: S.config }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "budget-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  function pickStartMonth() {
+    const ks = Object.keys(S.months).sort();
+    const now = ymOf(new Date());
+    if (S.months[now]) S.ym = now;
+    else if (ks.length) S.ym = ks.find(k => k > now) || ks[ks.length - 1];
+  }
+  function refreshFromRemote() {
+    const a = document.activeElement;
+    if (a && a.closest && a.closest("#main") && (a.tagName === "INPUT" || a.tagName === "SELECT")) renderDerived();
+    else renderAll();
+  }
+
+  // ---------- rendering ----------
+  function renderAll() {
+    $("#monthTitle").textContent = ymLabel(S.ym);
+    $("#curSAR").setAttribute("aria-pressed", display === "SAR");
+    $("#curUGX").setAttribute("aria-pressed", display === "UGX");
+    const ri = $("#rateInput"); if (document.activeElement !== ri) ri.value = fmtN(rate(), 2);
+    const main = $("#main");
+    if (!S.loaded) { main.innerHTML = `<div class="empty"><h2>Opening your budget</h2><p class="muted" style="margin:0">Your months, savings plan and shopping list will appear here.</p></div>`; return; }
+    const m = month();
+    if (!m) { main.innerHTML = emptyMonthHTML(); return; }
+    main.innerHTML = `
+      <section class="tiles" id="tiles"></section>
+      <section class="alloc" id="alloc"></section>
+      <section class="grid2">
+        <div style="display:grid;gap:20px;min-width:0">
+          ${panel("income", "Income", "What comes in this month", incomeTable(m))}
+          ${panel("home", "Money sent home", "UGX is what lands at home. Leave it blank to use the rate.", homeTable(m))}
+        </div>
+        <div style="display:grid;gap:20px;min-width:0">
+          ${panel("spend", "Personal spending", "Plan at the start of the month, log what you spent as you go.", spendTable(m))}
+          <div class="panel"><div class="panel-head"><h2>Plan vs spent</h2><p>Light bar = plan, solid = spent</p></div><div class="sbars" id="sbars"></div></div>
+        </div>
+      </section>
+      <section class="grid2">
+        ${panel("savings", "Savings plan", "Monthly targets and where they get you", savingsTable())}
+        ${panel("wish", "Things to buy", "One-off purchases, ticked off as you get them", wishTable())}
+      </section>
+      <section class="grid2">
+        <div class="panel tool" id="otTool"></div>
+        <div class="panel tool" id="fxTool"></div>
+      </section>
+      <section class="panel trend"><div class="panel-head"><h2>Month by month</h2><p>Where each month’s income went</p></div><div id="trend"></div></section>
+    `;
+    renderTools();
+    renderDerived();
+  }
+
+  function emptyMonthHTML() {
+    const prev = Object.keys(S.months).filter(k => k < S.ym).sort().pop();
+    return `<div class="empty">
+      <span class="eyebrow">No budget yet</span>
+      <h2>${esc(ymLabel(S.ym))} hasn’t been planned</h2>
+      <p class="muted" style="margin:0;max-width:60ch">${prev ? `Copy ${esc(ymLabel(prev))} to keep the same lines and amounts. What you spent and what you’ve sent get cleared so you can track this month fresh.` : `Start with an empty month and add your income, what you send home, and your spending lines.`}</p>
+      <div class="row">
+        ${prev ? `<button class="btn" data-act="copyPrev" data-from="${prev}">Copy ${esc(ymShort(prev))}</button>` : ""}
+        <button class="btn ${prev ? "ghost" : ""}" data-act="blank">Start blank</button>
+      </div></div>`;
+  }
+
+  function panel(id, title, sub, body) {
+    return `<div class="panel" id="p-${id}"><div class="panel-head"><h2>${title}</h2><p>${sub}</p></div>${body}</div>`;
+  }
+  const inp = (list, id, field, val, cls = "", ph = "", label = "") =>
+    `<input type="text" class="${cls}" data-list="${list}" data-id="${id}" data-field="${field}" value="${esc(val)}" placeholder="${esc(ph)}" aria-label="${esc(label || field)}" ${cls.includes("n") ? 'inputmode="decimal"' : ""}>`;
+  const curSel = (list, id, cur) => `<select data-list="${list}" data-id="${id}" data-field="cur" aria-label="Currency"><option ${cur !== "UGX" ? "selected" : ""}>SAR</option><option ${cur === "UGX" ? "selected" : ""}>UGX</option></select>`;
+  const del = (list, id) => `<td class="del"><button class="x" data-act="del" data-list="${list}" data-id="${id}" aria-label="Remove line">×</button></td>`;
+  const addBtn = (list, txt) => `<button class="add" data-act="add" data-list="${list}">+ ${txt}</button>`;
+
+  function incomeTable(m) {
+    const rows = (m.income || []).map(x => `<tr>
+      <td>${inp("income", x.id, "name", x.name, "", "Source", "Income source")}</td>
+      <td style="width:70px">${curSel("income", x.id, x.cur)}</td>
+      <td style="width:130px">${inp("income", x.id, "amt", fmtN(x.amt, 2), "n", "0", "Amount")}</td>
+      ${del("income", x.id)}</tr>`).join("");
+    return `<div class="scroll"><table><thead><tr><th>Source</th><th></th><th class="r">Amount</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total</td><td class="r num" id="f-income"></td><td></td></tr></tfoot></table></div>${addBtn("income", "Add income")}`;
+  }
+  function homeTable(m) {
+    const r = m.rate || rate();
+    const rows = (m.home || []).map(x => `<tr class="${x.sent ? "done" : ""}">
+      <td style="width:30px"><input type="checkbox" data-list="home" data-id="${x.id}" data-field="sent" ${x.sent ? "checked" : ""} aria-label="Sent"></td>
+      <td>${inp("home", x.id, "name", x.name, "", "What for", "Purpose")}</td>
+      <td style="width:100px">${inp("home", x.id, "sar", fmtN(x.sar, 2), "n", "0", "SAR")}</td>
+      <td style="width:130px">${inp("home", x.id, "ugx", x.ugx != null ? fmtN(x.ugx) : "", "n", fmtN((x.sar || 0) * r), "UGX")}</td>
+      ${del("home", x.id)}</tr>`).join("");
+    return `<div class="scroll"><table><thead><tr><th title="Tick when sent">Sent</th><th>For</th><th class="r">SAR</th><th class="r">UGX</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td></td><td>Total</td><td class="r num" id="f-homeSar"></td><td class="r num" id="f-homeUgx"></td><td></td></tr></tfoot></table></div>
+      <div class="note" id="homeNote"></div>${addBtn("home", "Add line")}`;
+  }
+  function spendTable(m) {
+    const rows = (m.spend || []).map(x => `<tr data-row="${x.id}">
+      <td>${inp("spend", x.id, "name", x.name, "", "Item", "Item")}</td>
+      <td style="width:66px">${curSel("spend", x.id, x.cur)}</td>
+      <td style="width:92px">${inp("spend", x.id, "plan", fmtN(x.plan, 2), "n", "0", "Planned")}</td>
+      <td style="width:92px">${inp("spend", x.id, "spent", fmtN(x.spent, 2), "n", "—", "Spent")}</td>
+      ${del("spend", x.id)}</tr>`).join("");
+    return `<div class="scroll"><table><thead><tr><th>Item</th><th></th><th class="r">Plan</th><th class="r">Spent</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total (SAR)</td><td class="r num" id="f-plan"></td><td class="r num" id="f-spent"></td><td></td></tr></tfoot></table></div>${addBtn("spend", "Add item")}`;
+  }
+  function savingsTable() {
+    const c = cfg();
+    const rows = c.savings.map(x => `<tr>
+      <td>${inp("savings", x.id, "name", x.name, "", "Goal", "Goal")}</td>
+      <td style="width:92px">${inp("savings", x.id, "sar", fmtN(x.sar, 2), "n", "0", "SAR per month")}</td>
+      <td class="calc" id="sv-${x.id}-y"></td>
+      <td class="calc" id="sv-${x.id}-g"></td>
+      ${del("savings", x.id)}</tr>`).join("");
+    return `<div class="fields">
+        <label class="field">Years<input type="text" inputmode="decimal" data-cfg="years" value="${fmtN(c.years, 1)}"></label>
+        <label class="field">Growth on top (%)<input type="text" inputmode="decimal" data-cfg="growthPct" value="${fmtN(c.growthPct, 2)}"></label>
+      </div>
+      <div class="scroll"><table><thead><tr><th>Goal</th><th class="r">SAR / mo</th><th class="r" id="h-years">After</th><th class="r" id="h-growth">With growth</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="r num" id="f-sv"></td><td class="r num" id="f-svy"></td><td class="r num" id="f-svg"></td><td></td></tr></tfoot></table></div>
+      <div class="note" id="svNote"></div>${addBtn("savings", "Add goal")}`;
+  }
+  function wishTable() {
+    const c = cfg();
+    const groups = [...new Set(c.wishlist.map(x => x.group || "Other"))];
+    const body = groups.map(g => `<tbody><tr><td colspan="4" style="padding:10px 6px 4px;border-top:0"><span class="eyebrow">${esc(g)}</span></td></tr>
+      ${c.wishlist.filter(x => (x.group || "Other") === g).map(x => `<tr class="${x.done ? "done" : ""}">
+        <td style="width:30px"><input type="checkbox" data-list="wish" data-id="${x.id}" data-field="done" ${x.done ? "checked" : ""} aria-label="Bought"></td>
+        <td>${inp("wish", x.id, "name", x.name, "", "Item", "Item")}</td>
+        <td style="width:100px">${inp("wish", x.id, "sar", fmtN(x.sar, 2), "n", "price?", "Price in SAR")}</td>
+        ${del("wish", x.id)}</tr>`).join("")}</tbody>`).join("");
+    return `<div class="scroll"><table><thead><tr><th title="Tick when bought">Got</th><th>Item</th><th class="r">SAR</th><th></th></tr></thead>
+      ${body}<tfoot><tr><td></td><td>Still to buy</td><td class="r num" id="f-wish"></td><td></td></tr></tfoot></table></div>
+      <div class="note" id="wishNote"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${groups.map(g => `<button class="add" data-act="add" data-list="wish" data-group="${esc(g)}">+ ${esc(g)} item</button>`).join("")}${groups.length ? "" : addBtn("wish", "Add item")}</div>`;
+  }
+
+  function renderTools() {
+    const c = cfg();
+    $("#otTool").innerHTML = `<div class="panel-head"><h2>Overtime</h2><p>Hourly = salary ÷ 30 days ÷ 8 hours</p></div>
+      <div class="fields">
+        <label class="field">Basic salary (SAR)<input type="text" inputmode="decimal" data-cfg="ot.salary" value="${fmtN(c.ot.salary, 2)}"></label>
+        <label class="field">Overtime hours<input type="text" inputmode="decimal" data-cfg="ot.hours" value="${fmtN(c.ot.hours, 2)}"></label>
+        <label class="field">Rate multiplier<input type="text" inputmode="decimal" data-cfg="ot.mult" value="${fmtN(c.ot.mult, 2)}"></label>
+      </div>
+      <div class="result" id="otOut"></div>
+      <div><button class="btn ghost" data-act="otToIncome">Put in ${esc(ymShort(S.ym))} income</button></div>`;
+    $("#fxTool").innerHTML = `<div class="panel-head"><h2>Exchange</h2><p>Uses this month’s rate and your transfer fee</p></div>
+      <div class="fields">
+        <label class="field">Amount<input type="text" inputmode="decimal" data-cfg="fx.amount" value="${fmtN(c.fx.amount, 2)}"></label>
+        <label class="field">I have it in<select data-cfg="fx.dir"><option value="sar" ${c.fx.dir === "sar" ? "selected" : ""}>SAR (sending)</option><option value="ugx" ${c.fx.dir === "ugx" ? "selected" : ""}>UGX (they need)</option></select></label>
+        <label class="field">Fee (%)<input type="text" inputmode="decimal" data-cfg="fx.feePct" value="${fmtN(c.fx.feePct, 2)}"></label>
+      </div>
+      <div class="result" id="fxOut"></div>`;
+  }
+
+  function renderDerived() {
+    const m = month(); if (!m || !$("#tiles")) return;
+    const t = totals(m), r = t.r, c = cfg();
+    // tiles
+    const over = t.left < 0;
+    $("#tiles").innerHTML = [
+      ["Income", null, t.income, ""],
+      ["Sent home", "var(--home)", t.homeSar, `${pct(t.homeSar, t.income)} of income`],
+      ["Spending", "var(--spend)", t.spendUse, t.spentLogged ? `${fmtSar(t.spent)} spent so far` : `${pct(t.spendUse, t.income)} of income`],
+      [over ? "Over budget" : "Left over", over ? "var(--bad)" : "var(--left)", Math.abs(t.left), over ? "Cut a line or add income" : `${pct(t.left, t.income)} of income`]
+    ].map(([k, col, v, note], i) => `<div class="tile ${i === 3 && over ? "over" : ""}">
+      <div class="k">${col ? `<span class="dot" style="background:${col}"></span>` : ""}<span class="eyebrow">${k}</span></div>
+      <div class="v">${show(v, r)}</div><div class="s">${other(v, r)}${note ? " · " + note : ""}</div></div>`).join("");
+    // allocation
+    const base = Math.max(t.income, t.homeSar + t.spendUse) || 1;
+    const segs = [["Sent home", t.homeSar, "var(--home)"], ["Spending", t.spendUse, "var(--spend)"], ["Left over", Math.max(t.left, 0), "var(--left)"]].filter(s => s[1] > 0);
+    $("#alloc").innerHTML = `<div class="panel-head" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><span class="eyebrow">Where ${esc(ymShort(S.ym))} income goes</span>${over ? `<span class="pill bad">▲ Over by ${show(-t.left, r)}</span>` : t.income ? `<span class="pill good">✓ Fits your income</span>` : ""}</div>
+      <div class="bar">${segs.map(s => `<div style="flex:0 0 calc(${(s[1] / base) * 100}% - 2px);background:${s[2]}" data-tip="${esc(s[0])}\n${fmtSar(s[1])}\n${fmtUgx(s[1] * r)}"></div>`).join("")}</div>
+      <div class="legend">${segs.map(s => `<span><span class="dot" style="background:${s[2]}"></span>${s[0]} <b>${pct(s[1], t.income)}</b></span>`).join("")}</div>`;
+    // footers
+    setText("#f-income", show(t.income, r));
+    setText("#f-homeSar", fmtN(t.homeSar, 2));
+    setText("#f-homeUgx", fmtN(t.homeUgx));
+    setText("#f-plan", fmtN(t.plan, 2));
+    setText("#f-spent", t.spentLogged ? fmtN(t.spent, 2) : "—");
+    const eff = t.homeSar ? t.homeUgx / t.homeSar : 0;
+    const sent = (m.home || []).filter(x => x.sent).reduce((a, x) => a + (x.sar || 0), 0);
+    if ($("#homeNote")) $("#homeNote").innerHTML = `Home receives <span class="num">${fmtUgx(t.homeUgx)}</span>${eff ? ` · works out to <span class="num">${fmtN(eff, 1)}</span> UGX per SAR` : ""}${t.homeSar ? ` · <span class="num">${fmtSar(sent)}</span> of <span class="num">${fmtSar(t.homeSar)}</span> sent so far` : ""}`;
+    // auto UGX placeholders
+    (m.home || []).forEach(x => { const el = document.querySelector(`input[data-list="home"][data-id="${x.id}"][data-field="ugx"]`); if (el) el.placeholder = fmtN((x.sar || 0) * r); });
+    // spending rows over-plan marker + chart
+    const lines = (m.spend || []).filter(x => (x.plan || 0) > 0 || (x.spent || 0) > 0);
+    const maxV = Math.max(1, ...lines.map(x => Math.max(toSar(x.plan, x.cur, r), toSar(x.spent, x.cur, r))));
+    $("#sbars").innerHTML = lines.length ? lines.map(x => {
+      const p = toSar(x.plan, x.cur, r), s = x.spent != null ? toSar(x.spent, x.cur, r) : null, ov = s != null && s > p;
+      return `<div class="srow" data-tip="${esc(x.name || "Item")}\nPlan ${fmtSar(p)}\n${s != null ? "Spent " + fmtSar(s) + (ov ? " · over by " + fmtSar(s - p) : "") : "Nothing logged yet"}">
+        <span class="lbl">${esc(x.name || "Item")}</span>
+        <div class="strack"><div class="plan" style="width:${(p / maxV) * 100}%"></div>${s != null ? `<div class="act ${ov ? "over" : ""}" style="width:${(s / maxV) * 100}%"></div>` : ""}</div>
+        <span class="val">${s != null ? fmtN(s, 2) + " / " : ""}${fmtN(p, 2)}</span></div>`;
+    }).join("") : `<p class="muted" style="margin:0">Add an amount to a spending line to see it here.</p>`;
+    // savings
+    const yrs = c.years || 0, g = (c.growthPct || 0) / 100, mos = Math.round(yrs * 12);
+    setText("#h-years", `${fmtN(yrs, 1)} yr`); setText("#h-growth", `+${fmtN(c.growthPct, 2)}%`);
+    let sv = 0;
+    c.savings.forEach(x => { const v = x.sar || 0; sv += v; setText(`#sv-${x.id}-y`, fmtN(v * mos)); setText(`#sv-${x.id}-g`, fmtN(v * mos * (1 + g))); });
+    setText("#f-sv", fmtN(sv, 2)); setText("#f-svy", fmtN(sv * mos)); setText("#f-svg", fmtN(sv * mos * (1 + g)));
+    if ($("#svNote")) $("#svNote").innerHTML = `<span class="num">${fmtSar(sv)}</span> a month is <span class="num">${fmtUgx(sv * r)}</span> at today’s rate, and <span class="num">${fmtUgx(sv * mos * (1 + g) * r)}</span> after ${fmtN(yrs, 1)} years with growth.`;
+    // wishlist
+    const todo = c.wishlist.filter(x => !x.done), owed = todo.reduce((a, x) => a + (x.sar || 0), 0), unpriced = todo.filter(x => x.sar == null).length;
+    setText("#f-wish", fmtN(owed, 2));
+    if ($("#wishNote")) $("#wishNote").innerHTML = `${todo.length} to buy, <span class="num">${fmtSar(owed)}</span>${unpriced ? ` plus ${unpriced} without a price yet` : ""}.` +
+      (owed > 0 && t.left > 0 ? ` At this month’s left over of <span class="num">${fmtSar(t.left)}</span>, that’s about <span class="num">${Math.ceil(owed / t.left)}</span> month${Math.ceil(owed / t.left) === 1 ? "" : "s"}.` : "");
+    // tools
+    const hourly = (c.ot.salary || 0) / 240, otRate = hourly * (c.ot.mult || 0), otPay = otRate * (c.ot.hours || 0);
+    if ($("#otOut")) $("#otOut").innerHTML = `<span class="big">${fmtSar(otPay)}</span><span class="muted num">${fmtN(hourly, 2)}/hr basic · ${fmtN(otRate, 2)}/hr overtime · ${fmtUgx(otPay * r)}</span>`;
+    const fee = (c.fx.feePct || 0) / 100, amt = c.fx.amount || 0;
+    if ($("#fxOut")) {
+      if (c.fx.dir === "ugx") { const need = amt / r, pay = fee < 1 ? need / (1 - fee) : need; $("#fxOut").innerHTML = `<span class="big">${fmtSar(pay)}</span><span class="muted num">to send so home gets ${fmtUgx(amt)} · fee ${fmtSar(pay - need)}</span>`; }
+      else { const net = amt * (1 - fee); $("#fxOut").innerHTML = `<span class="big">${fmtUgx(net * r)}</span><span class="muted num">arrives from ${fmtSar(amt)} · fee ${fmtSar(amt - net)}</span>`; }
+    }
+    renderTrend();
+  }
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) + "%" : "–");
+  function setText(sel, txt) { const el = $(sel); if (el) el.textContent = txt; }
+
+  function renderTrend() {
+    const el = $("#trend"); if (!el) return;
+    const ks = Object.keys(S.months).sort().slice(-12);
+    const rows = ks.map(k => ({ k, t: totals(S.months[k]) }));
+    const conv = (v, t) => (display === "SAR" ? v : v * t.r);
+    const maxV = Math.max(1, ...rows.map(({ t }) => conv(Math.max(t.income, t.homeSar + t.spendUse), t)));
+    const step = niceStep(maxV / 4), top = Math.ceil(maxV / step) * step;
+    const W = 640, H = 230, L = 64, R = 10, T = 12, B = 28, pw = W - L - R, ph = H - T - B;
+    const bw = Math.min(46, (pw / Math.max(rows.length, 1)) * 0.56);
+    const y = v => T + ph - (v / top) * ph;
+    let g = "";
+    for (let v = 0; v <= top + 1e-6; v += step) g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${compact(v)}</text>`;
+    rows.forEach(({ k, t }, i) => {
+      const cx = L + (pw / rows.length) * (i + 0.5), x = cx - bw / 2;
+      const parts = [[t.homeSar, "var(--home)", "Sent home"], [t.spendUse, "var(--spend)", "Spending"], [Math.max(t.left, 0), "var(--left)", "Left over"]].filter(p => p[0] > 0);
+      let acc = 0;
+      parts.forEach((p, j) => {
+        const v = conv(p[0], t), y0 = y(acc), y1 = y(acc + v); acc += v;
+        const h = Math.max(0, y0 - y1 - (j < parts.length - 1 ? 0 : 0));
+        const gap = j > 0 ? 2 : 0;
+        const isTop = j === parts.length - 1;
+        g += isTop
+          ? `<path d="${roundTop(x, y1, bw, Math.max(0, h - gap), 4)}" fill="${p[1]}"/>`
+          : `<rect x="${x}" y="${y1}" width="${bw}" height="${Math.max(0, h - gap)}" fill="${p[1]}"/>`;
+      });
+      const tip = `${ymLabel(k)}\nIncome ${show(t.income, t.r)}\nSent home ${show(t.homeSar, t.r)}\nSpending ${show(t.spendUse, t.r)}\n${t.left < 0 ? "Over by " + show(-t.left, t.r) : "Left over " + show(t.left, t.r)}`;
+      g += `<rect x="${cx - pw / rows.length / 2}" y="${T}" width="${pw / rows.length}" height="${ph}" fill="transparent" data-tip="${esc(tip)}" style="cursor:default"/>`;
+      g += `<text x="${cx}" y="${H - 8}" text-anchor="middle" ${k === S.ym ? 'style="fill:var(--ink);font-weight:600"' : ""}>${ymShort(k)}</text>`;
+    });
+    el.innerHTML = `<div class="legend" style="margin-bottom:8px"><span><span class="dot" style="background:var(--home)"></span>Sent home</span><span><span class="dot" style="background:var(--spend)"></span>Spending</span><span><span class="dot" style="background:var(--left)"></span>Left over</span><span class="muted">in ${display}</span></div>
+      <div class="scroll"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly income split">${g}</svg></div>
+      ${rows.length < 2 ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Each month you plan adds a column here.</p>` : ""}`;
+  }
+  function roundTop(x, y, w, h, r) { r = Math.min(r, h, w / 2); return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`; }
+  function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const f = raw / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p; }
+  function compact(v) { return v >= 1e6 ? fmtN(v / 1e6, 1) + "M" : v >= 1e3 ? fmtN(v / 1e3, 1) + "k" : fmtN(v); }
+
+  // ---------- editing ----------
+  function listOf(name) {
+    if (name === "savings") return cfg().savings;
+    if (name === "wish") return cfg().wishlist;
+    const m = month(); return m ? (m[name] = m[name] || []) : [];
+  }
+  const touch = name => (name === "savings" || name === "wish" ? touchConfig() : touchMonth());
+  const NUMERIC = new Set(["amt", "sar", "ugx", "plan", "spent"]);
+
+  document.addEventListener("input", e => {
+    const t = e.target;
+    if (t.id === "rateInput") { const v = parseNum(t.value); if (v > 0 && month()) { month().rate = v; touchMonth(); renderDerived(); } return; }
+    if (t.dataset.cfg) { setCfg(t.dataset.cfg, t.tagName === "SELECT" ? t.value : parseNum(t.value)); touchConfig(); renderDerived(); return; }
+    if (!t.dataset.list || t.type === "checkbox" || t.tagName === "SELECT") return;
+    const item = listOf(t.dataset.list).find(x => x.id === t.dataset.id); if (!item) return;
+    const f = t.dataset.field;
+    item[f] = NUMERIC.has(f) ? parseNum(t.value) : t.value;
+    touch(t.dataset.list); renderDerived();
+  });
+  document.addEventListener("change", e => {
+    const t = e.target;
+    if (t.dataset.cfg && t.tagName === "SELECT") { setCfg(t.dataset.cfg, t.value); touchConfig(); renderDerived(); return; }
+    if (!t.dataset.list) return;
+    const item = listOf(t.dataset.list).find(x => x.id === t.dataset.id); if (!item) return;
+    if (t.type === "checkbox") { item[t.dataset.field] = t.checked; t.closest("tr").classList.toggle("done", t.checked); }
+    else if (t.tagName === "SELECT") item.cur = t.value;
+    else return;
+    touch(t.dataset.list); renderDerived();
+  });
+  document.addEventListener("focusout", e => {
+    const t = e.target;
+    if (t.id === "rateInput") { t.value = fmtN(rate(), 2); return; }
+    if (t.tagName !== "INPUT" || t.type !== "text") return;
+    if ((t.dataset.list && NUMERIC.has(t.dataset.field)) || t.dataset.cfg) { const v = parseNum(t.value); t.value = v == null ? "" : fmtN(v, t.dataset.field === "ugx" ? 0 : 2); }
+  });
+  function setCfg(path, v) { const c = cfg(); const ks = path.split("."); let o = c; for (let i = 0; i < ks.length - 1; i++) o = o[ks[i]] = o[ks[i]] || {}; o[ks[ks.length - 1]] = v; }
+
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const act = b.dataset.act;
+    if (act === "add") {
+      const list = b.dataset.list, id = rid();
+      const blank = { income: { id, name: "", cur: "SAR", amt: null }, home: { id, name: "", sar: null, ugx: null, sent: false }, spend: { id, name: "", cur: "SAR", plan: null, spent: null }, savings: { id, name: "", sar: null }, wish: { id, name: "", sar: null, done: false, group: b.dataset.group || "Personal" } }[list];
+      listOf(list).push(blank); touch(list); renderAll();
+      const el = document.querySelector(`input[data-list="${list}"][data-id="${id}"][data-field="name"]`); if (el) el.focus();
+    } else if (act === "del") {
+      const list = listOf(b.dataset.list), i = list.findIndex(x => x.id === b.dataset.id);
+      if (i >= 0) { list.splice(i, 1); touch(b.dataset.list); renderAll(); }
+    } else if (act === "copyPrev") {
+      const src = clone(S.months[b.dataset.from]);
+      S.months[S.ym] = { ym: S.ym, rate: src.rate || 1000, income: src.income || [], home: (src.home || []).map(x => ({ ...x, sent: false })), spend: (src.spend || []).map(x => ({ ...x, spent: null })) };
+      touchMonth(); renderAll();
+    } else if (act === "blank") {
+      S.months[S.ym] = { ym: S.ym, rate: lastRate() || 1000, income: [{ id: rid(), name: "Salary", cur: "SAR", amt: null }], home: [], spend: [] };
+      touchMonth(); renderAll();
+    } else if (act === "otToIncome") {
+      const m = month(); if (!m) return;
+      const c = cfg(), pay = Math.round((c.ot.salary || 0) / 240 * (c.ot.mult || 0) * (c.ot.hours || 0) * 100) / 100;
+      let line = (m.income || []).find(x => /overtime/i.test(x.name || ""));
+      if (!line) { line = { id: rid(), name: "Overtime", cur: "SAR", amt: 0 }; (m.income = m.income || []).push(line); }
+      line.amt = pay; line.cur = "SAR"; touchMonth(); renderAll();
+    }
+  });
+
+  $("#prev").onclick = () => { S.ym = ymAdd(S.ym, -1); renderAll(); };
+  $("#next").onclick = () => { S.ym = ymAdd(S.ym, 1); renderAll(); };
+  $("#curSAR").onclick = () => setDisplay("SAR");
+  $("#curUGX").onclick = () => setDisplay("UGX");
+  function setDisplay(d) { display = d; try { localStorage.setItem("budget.display", d); } catch (e) {} renderAll(); }
+
+  // ---------- tooltip ----------
+  const tip = $("#tip");
+  document.addEventListener("pointerover", e => { const t = e.target.closest("[data-tip]"); if (!t) return; tip.textContent = t.dataset.tip || t.getAttribute("data-tip"); tip.hidden = false; });
+  document.addEventListener("pointermove", e => { if (tip.hidden) return; const w = tip.offsetWidth, x = Math.min(e.clientX + 14, innerWidth - w - 8); tip.style.left = Math.max(8, x) + "px"; tip.style.top = (e.clientY + 16) + "px"; });
+  document.addEventListener("pointerout", e => { const t = e.target.closest("[data-tip]"); if (t && !t.contains(e.relatedTarget)) tip.hidden = true; });
+
+  boot();
+})();
+</script>
+</body>
+</html>
