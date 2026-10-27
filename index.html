@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#1d5bb8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Budget</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -167,6 +174,39 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
 .linkbtn { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13px; padding: 0; justify-self: start; }
 .msg { font-size: 13px; border-radius: 9px; padding: 9px 11px; background: var(--sunk); color: var(--ink-2); }
 .msg.err { background: var(--bad-soft); color: var(--bad); }
+#p-savings td:first-child input { min-width: 140px; }
+td input.logged { color: var(--spend); font-weight: 600; cursor: default; }
+
+/* quick expense */
+.fab { position: fixed; z-index: 30; right: calc(18px + env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); border: 0; border-radius: 999px; padding: 14px 20px; background: var(--spend); color: #fff; font-weight: 700; font-size: 15px; box-shadow: 0 6px 18px rgba(0,0,0,.22); display: inline-flex; align-items: center; gap: 8px; }
+.fab:hover { filter: brightness(1.05); }
+.fab span { font-size: 20px; line-height: 1; }
+dialog.sheet { border: 0; padding: 0; background: transparent; max-width: 440px; width: calc(100% - 24px); margin: auto; color: var(--ink); }
+dialog.sheet::backdrop { background: rgba(10, 14, 20, .45); }
+.sheet form { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 20px 18px calc(18px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.sheet form > *, .sheet .fields > * { min-width: 0; }
+.sheet input[type="date"] { min-width: 0; width: 100%; }
+dialog.sheet { overflow-x: hidden; }
+@media (max-width: 600px) { dialog.sheet { margin: auto 0 0; width: 100%; max-width: 100%; } .sheet form { border-radius: 18px 18px 0 0; border-bottom: 0; } }
+.amt-row { display: flex; gap: 10px; align-items: stretch; }
+.amt-row input { flex: 1; min-width: 0; font-family: var(--font-display); font-weight: 700; font-size: 34px; border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 8px 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.amt-row input:focus { outline: none; border-color: var(--accent); }
+.sheet .seg { align-self: center; }
+.sheet-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.sheet-actions .btn { padding: 11px 18px; font-size: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 6px 11px; font-size: 13px; color: var(--ink-2); }
+.chip[aria-pressed="true"] { background: var(--spend); border-color: var(--spend); color: #fff; font-weight: 600; }
+.toast { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); border-radius: 12px; padding: 10px 14px; font-size: 14px; display: flex; gap: 14px; align-items: center; max-width: calc(100% - 32px); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.toast button { border: 0; background: none; color: var(--bg); font-weight: 700; text-decoration: underline; padding: 0; }
+.xlist { display: grid; gap: 0; }
+.xrow { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto 30px; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.xrow:first-child { border-top: 0; }
+.xrow .d { font-family: var(--font-num); font-size: 12px; color: var(--ink-3); }
+.xrow .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xrow .w small { color: var(--ink-3); }
+.xrow .a { font-family: var(--font-num); font-size: 13px; text-align: right; white-space: nowrap; }
+.install { display: grid; gap: 6px; }
 .foot { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; }
 </style>
 </head>
@@ -210,12 +250,39 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
   <footer class="foot">
     <span id="who"></span>
     <span style="display:flex;gap:16px;flex-wrap:wrap">
+      <button class="linkbtn" id="installBtn" hidden>Add to Home Screen</button>
       <button class="linkbtn" id="backupBtn">Download backup</button>
       <button class="linkbtn" id="signOutBtn">Sign out</button>
     </span>
   </footer>
+  <div class="note install" id="installHelp" hidden></div>
 </div>
+<button class="fab" id="fab" type="button" hidden><span aria-hidden="true">+</span> Expense</button>
 </div>
+<dialog class="sheet" id="xSheet" aria-labelledby="xTitle">
+  <form id="xForm" method="dialog" novalidate>
+    <div class="panel-head"><h2 id="xTitle">Add an expense</h2><p id="xMonth"></p></div>
+    <div class="amt-row">
+      <input id="xAmt" type="text" inputmode="decimal" placeholder="0" aria-label="Amount" autocomplete="off">
+      <div class="seg" role="group" aria-label="Currency">
+        <button type="button" id="xSAR" aria-pressed="true">SAR</button>
+        <button type="button" id="xUGX" aria-pressed="false">UGX</button>
+      </div>
+    </div>
+    <div class="field">What for<div class="chips" id="xChips"></div></div>
+    <label class="field" id="xNewWrap" hidden>New spending line<input id="xNew" type="text" placeholder="e.g. Taxi"></label>
+    <div class="fields">
+      <label class="field">Note (optional)<input id="xNote" type="text" placeholder="e.g. Lulu"></label>
+      <label class="field">Date<input id="xDate" type="date"></label>
+    </div>
+    <div class="msg err" id="xErr" hidden></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" type="button" id="xCancel">Cancel</button>
+      <button class="btn" type="submit" id="xSave">Add expense</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast" hidden><span id="toastMsg"></span><button type="button" id="toastUndo">Undo</button></div>
 <div id="tip" hidden></div>
 
 <script>
@@ -417,6 +484,7 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
     $("#curUGX").setAttribute("aria-pressed", display === "UGX");
     const ri = $("#rateInput"); if (document.activeElement !== ri) ri.value = fmtN(rate(), 2);
     const main = $("#main");
+    $("#fab").hidden = !(S.loaded && month());
     if (!S.loaded) { main.innerHTML = `<div class="empty"><h2>Opening your budget</h2><p class="muted" style="margin:0">Your months, savings plan and shopping list will appear here.</p></div>`; return; }
     const m = month();
     if (!m) { main.innerHTML = emptyMonthHTML(); return; }
@@ -432,6 +500,8 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
         <div style="display:grid;gap:20px;min-width:0">
           ${panel("spend", "Personal spending", "Plan at the start of the month, log what you spent as you go.", spendTable(m))}
           <div class="panel"><div class="panel-head"><h2>Plan vs spent</h2><p>Light bar = plan, solid = spent</p></div><div class="sbars" id="sbars"></div></div>
+          <div class="panel" id="p-expenses"><div class="panel-head"><h2>This month’s expenses</h2><p id="xSummary"></p></div><div class="xlist" id="xList"></div>
+            <button class="add" data-act="openSheet">+ Add expense</button></div>
         </div>
       </section>
       <section class="grid2">
@@ -495,7 +565,9 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
       <td>${inp("spend", x.id, "name", x.name, "", "Item", "Item")}</td>
       <td style="width:66px">${curSel("spend", x.id, x.cur)}</td>
       <td style="width:92px">${inp("spend", x.id, "plan", fmtN(x.plan, 2), "n", "0", "Planned")}</td>
-      <td style="width:92px">${inp("spend", x.id, "spent", fmtN(x.spent, 2), "n", "—", "Spent")}</td>
+      <td style="width:92px">${(x.log || []).length
+        ? `<input type="text" class="n logged" readonly value="${fmtN(x.spent, 2)}" aria-label="Spent, from ${x.log.length} logged expenses" title="Total of ${x.log.length} logged expense${x.log.length === 1 ? "" : "s"}. Change them under This month’s expenses.">`
+        : inp("spend", x.id, "spent", fmtN(x.spent, 2), "n", "—", "Spent")}</td>
       ${del("spend", x.id)}</tr>`).join("");
     return `<div class="scroll"><table><thead><tr><th>Item</th><th></th><th class="r">Plan</th><th class="r">Spent</th><th></th></tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total (SAR)</td><td class="r num" id="f-plan"></td><td class="r num" id="f-spent"></td><td></td></tr></tfoot></table></div>${addBtn("spend", "Add item")}`;
@@ -625,9 +697,130 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
       if (c.fx.dir === "ugx") { const need = amt / r, pay = fee < 1 ? need / (1 - fee) : need; $("#fxOut").innerHTML = `<span class="big">${fmtSar(pay)}</span><span class="muted num">to send so home gets ${fmtUgx(amt)} · fee ${fmtSar(pay - need)}</span>`; }
       else { const net = amt * (1 - fee); $("#fxOut").innerHTML = `<span class="big">${fmtUgx(net * r)}</span><span class="muted num">arrives from ${fmtSar(amt)} · fee ${fmtSar(amt - net)}</span>`; }
     }
+    renderExpenses(m);
     renderTrend();
   }
-  const pct = (a, b) => (b ? Math.round((a / b) * 100) + "%" : "–");
+
+  // ---------- expense log ----------
+  // Each spending line can carry log: [{id, d: "YYYY-MM-DD", amt, cur, note}]; its `spent` is then the log's total in the line's currency.
+  const inCur = (amt, from, to, r) => (from === to ? amt : to === "UGX" ? amt * r : amt / r);
+  function syncSpent(item, r) {
+    const log = item.log || [];
+    item.spent = log.length ? Math.round(log.reduce((a, e) => a + inCur(e.amt || 0, e.cur || item.cur || "SAR", item.cur || "SAR", r), 0) * 100) / 100 : null;
+  }
+  const dayLabel = d => { const [y, mo, da] = d.split("-").map(Number); return da + " " + MONTHS[mo - 1].slice(0, 3); };
+  function renderExpenses(m) {
+    const el = $("#xList"); if (!el) return;
+    const all = [];
+    (m.spend || []).forEach(x => (x.log || []).forEach(e => all.push({ e, x })));
+    all.sort((a, b) => (b.e.d || "").localeCompare(a.e.d || "") || (b.e.t || 0) - (a.e.t || 0));
+    const r = m.rate || rate();
+    const total = all.reduce((a, { e }) => a + toSar(e.amt, e.cur, r), 0);
+    setText("#xSummary", all.length ? `${all.length} logged · ${show(total, r)}` : "Tap + Expense when you buy something");
+    el.innerHTML = all.length ? all.slice(0, 60).map(({ e, x }) => `<div class="xrow">
+        <span class="d">${esc(dayLabel(e.d))}</span>
+        <span class="w">${esc(x.name || "Item")}${e.note ? ` <small>· ${esc(e.note)}</small>` : ""}</span>
+        <span class="a">${e.cur === "UGX" ? fmtUgx(e.amt) : fmtSar(e.amt)}</span>
+        <button class="x" data-act="delx" data-line="${x.id}" data-id="${e.id}" aria-label="Remove expense">×</button></div>`).join("")
+      + (all.length > 60 ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Showing the latest 60.</p>` : "")
+      : `<p class="muted" style="margin:0">Nothing logged yet. Each expense you add counts toward its spending line.</p>`;
+  }
+
+  let xCur = "SAR", xCurPicked = false, xLine = null, lastAdd = null;
+  function setXCur(c) { xCur = c; $("#xSAR").setAttribute("aria-pressed", c === "SAR"); $("#xUGX").setAttribute("aria-pressed", c === "UGX"); }
+  function todayIn(ym) {
+    const d = new Date(), iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    return iso.slice(0, 7) === ym ? iso : ym + "-01";
+  }
+  function openSheet() {
+    const m = month(); if (!m) return;
+    const lines = (m.spend || []).filter(x => (x.name || "").trim());
+    let last = null; try { last = localStorage.getItem("budget.lastLine"); } catch (e) {}
+    xLine = lines.find(x => x.name === last)?.id || null;
+    $("#xChips").innerHTML = lines.map(x => `<button type="button" class="chip" data-line="${x.id}" aria-pressed="${x.id === xLine}">${esc(x.name)}</button>`).join("")
+      + `<button type="button" class="chip" data-line="__new" aria-pressed="false">+ New line</button>`;
+    $("#xNewWrap").hidden = true; $("#xNew").value = "";
+    $("#xAmt").value = ""; $("#xNote").value = ""; $("#xErr").hidden = true;
+    const sel = lines.find(x => x.id === xLine);
+    setXCur(sel?.cur || "SAR"); xCurPicked = false;
+    const [y, mo] = S.ym.split("-").map(Number), lastDay = new Date(y, mo, 0).getDate();
+    const dt = $("#xDate"); dt.min = S.ym + "-01"; dt.max = S.ym + "-" + String(lastDay).padStart(2, "0"); dt.value = todayIn(S.ym);
+    $("#xMonth").textContent = "Counts toward " + ymLabel(S.ym);
+    $("#xSheet").showModal();
+    setTimeout(() => $("#xAmt").focus(), 50);
+  }
+  $("#xChips").addEventListener("click", e => {
+    const c = e.target.closest(".chip"); if (!c) return;
+    xLine = c.dataset.line;
+    document.querySelectorAll("#xChips .chip").forEach(b => b.setAttribute("aria-pressed", b === c));
+    $("#xNewWrap").hidden = xLine !== "__new";
+    if (xLine === "__new") $("#xNew").focus();
+    else if (!xCurPicked) { const it = (month().spend || []).find(x => x.id === xLine); if (it) setXCur(it.cur || "SAR"); }
+  });
+  $("#xSAR").onclick = () => { setXCur("SAR"); xCurPicked = true; };
+  $("#xUGX").onclick = () => { setXCur("UGX"); xCurPicked = true; };
+  $("#xCancel").onclick = () => $("#xSheet").close();
+  $("#xSheet").addEventListener("click", e => { if (e.target === $("#xSheet")) $("#xSheet").close(); });
+  $("#xForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const m = month(); if (!m) return;
+    const err = t => { $("#xErr").textContent = t; $("#xErr").hidden = false; };
+    const amt = parseNum($("#xAmt").value);
+    if (!(amt > 0)) return err("Enter how much you spent.");
+    if (!xLine) return err("Pick what it was for.");
+    let item;
+    if (xLine === "__new") {
+      const name = $("#xNew").value.trim(); if (!name) return err("Name the new spending line.");
+      item = { id: rid(), name, cur: xCur, plan: null, spent: null, log: [] };
+      (m.spend = m.spend || []).push(item);
+    } else item = (m.spend || []).find(x => x.id === xLine);
+    if (!item) return err("That line no longer exists. Pick another.");
+    const r = m.rate || rate();
+    if (!(item.log || []).length && item.spent != null && item.spent > 0) item.log = [{ id: rid(), d: S.ym + "-01", amt: item.spent, cur: item.cur || "SAR", note: "Logged before", t: 0 }];
+    item.log = item.log || [];
+    const entry = { id: rid(), d: $("#xDate").value || todayIn(S.ym), amt, cur: xCur, note: $("#xNote").value.trim(), t: Date.now() };
+    item.log.push(entry);
+    syncSpent(item, r);
+    try { localStorage.setItem("budget.lastLine", item.name); } catch (x) {}
+    lastAdd = { ym: S.ym, line: item.id, id: entry.id };
+    touchMonth(); $("#xSheet").close(); renderAll();
+    toast(`Added ${xCur === "UGX" ? fmtUgx(amt) : fmtSar(amt)} to ${item.name}`, true);
+  });
+  let toastTimer;
+  function toast(msg, undo) {
+    $("#toastMsg").textContent = msg; $("#toastUndo").hidden = !undo; $("#toast").hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("#toast").hidden = true; }, 5000);
+  }
+  function removeEntry(ym, lineId, id) {
+    const m = S.months[ym]; const item = m && (m.spend || []).find(x => x.id === lineId); if (!item) return null;
+    const i = (item.log || []).findIndex(e => e.id === id); if (i < 0) return null;
+    const [gone] = item.log.splice(i, 1);
+    syncSpent(item, m.rate || rate());
+    schedule(ym); renderAll();
+    return gone;
+  }
+  $("#toastUndo").onclick = () => {
+    if (lastAdd) { removeEntry(lastAdd.ym, lastAdd.line, lastAdd.id); lastAdd = null; }
+    $("#toast").hidden = true;
+  };
+  $("#fab").onclick = openSheet;
+
+  // ---------- home screen ----------
+  const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  let installEvt = null;
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("#installBtn").hidden = standalone(); });
+  if (!standalone() && /iphone|ipad|ipod/i.test(navigator.userAgent)) $("#installBtn").hidden = false;
+  $("#installBtn").onclick = async () => {
+    if (installEvt) { installEvt.prompt(); const { outcome } = await installEvt.userChoice; installEvt = null; if (outcome === "accepted") $("#installBtn").hidden = true; return; }
+    const help = $("#installHelp");
+    help.innerHTML = /iphone|ipad|ipod/i.test(navigator.userAgent)
+      ? "<b>On iPhone:</b> open this page in Safari, tap the Share button (square with an arrow), then <b>Add to Home Screen</b> → Add."
+      : "<b>On Android:</b> open this page in Chrome, tap the ⋮ menu, then <b>Add to Home screen</b> or <b>Install app</b>.";
+    help.hidden = !help.hidden;
+  };
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+
+  const pct =(a, b) => (b ? Math.round((a / b) * 100) + "%" : "–");
   function setText(sel, txt) { const el = $(sel); if (el) el.textContent = txt; }
 
   function renderTrend() {
@@ -678,7 +871,7 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
 
   document.addEventListener("input", e => {
     const t = e.target;
-    if (t.id === "rateInput") { const v = parseNum(t.value); if (v > 0 && month()) { month().rate = v; touchMonth(); renderDerived(); } return; }
+    if (t.id === "rateInput") { const v = parseNum(t.value); if (v > 0 && month()) { month().rate = v; (month().spend || []).forEach(x => { if ((x.log || []).length) syncSpent(x, v); }); touchMonth(); renderDerived(); } return; }
     if (t.dataset.cfg) { setCfg(t.dataset.cfg, t.tagName === "SELECT" ? t.value : parseNum(t.value)); touchConfig(); renderDerived(); return; }
     if (!t.dataset.list || t.type === "checkbox" || t.tagName === "SELECT") return;
     const item = listOf(t.dataset.list).find(x => x.id === t.dataset.id); if (!item) return;
@@ -692,7 +885,10 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
     if (!t.dataset.list) return;
     const item = listOf(t.dataset.list).find(x => x.id === t.dataset.id); if (!item) return;
     if (t.type === "checkbox") { item[t.dataset.field] = t.checked; t.closest("tr").classList.toggle("done", t.checked); }
-    else if (t.tagName === "SELECT") item.cur = t.value;
+    else if (t.tagName === "SELECT") {
+      item.cur = t.value;
+      if (t.dataset.list === "spend" && (item.log || []).length) { syncSpent(item, month().rate || rate()); touch("spend"); renderAll(); return; }
+    }
     else return;
     touch(t.dataset.list); renderDerived();
   });
@@ -715,9 +911,14 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
     } else if (act === "del") {
       const list = listOf(b.dataset.list), i = list.findIndex(x => x.id === b.dataset.id);
       if (i >= 0) { list.splice(i, 1); touch(b.dataset.list); renderAll(); }
+    } else if (act === "openSheet") {
+      openSheet();
+    } else if (act === "delx") {
+      const gone = removeEntry(S.ym, b.dataset.line, b.dataset.id);
+      if (gone) toast(`Removed ${gone.cur === "UGX" ? fmtUgx(gone.amt) : fmtSar(gone.amt)}`, false);
     } else if (act === "copyPrev") {
       const src = clone(S.months[b.dataset.from]);
-      S.months[S.ym] = { ym: S.ym, rate: src.rate || 1000, income: src.income || [], home: (src.home || []).map(x => ({ ...x, sent: false })), spend: (src.spend || []).map(x => ({ ...x, spent: null })), save: (src.save || []).map(x => ({ ...x, saved: false })) };
+      S.months[S.ym] = { ym: S.ym, rate: src.rate || 1000, income: src.income || [], home: (src.home || []).map(x => ({ ...x, sent: false })), spend: (src.spend || []).map(x => ({ ...x, spent: null, log: [] })), save: (src.save || []).map(x => ({ ...x, saved: false })) };
       touchMonth(); renderAll();
     } else if (act === "blank") {
       S.months[S.ym] = { ym: S.ym, rate: lastRate() || 1000, income: [{ id: rid(), name: "Salary", cur: "SAR", amt: null }], home: [], spend: [], save: [] };
