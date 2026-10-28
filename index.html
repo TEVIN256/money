@@ -725,11 +725,14 @@ dialog.sheet { overflow-x: hidden; }
       <div style="display:flex;flex-wrap:wrap;gap:8px">${groups.map(g => `<button class="add" data-act="add" data-list="wish" data-group="${esc(g)}">+ ${esc(g)} item</button>`).join("")}${groups.length ? "" : addBtn("wish", "Add item")}</div>`;
   }
 
+  // Working hours per day for the hourly rate; 10 unless changed in the Overtime box.
+  const otDay = () => (cfg().ot.day > 0 ? cfg().ot.day : 10);
   function renderTools() {
     const c = cfg();
-    $("#otTool").innerHTML = `<div class="panel-head"><h2>Overtime</h2><p>Hourly = salary ÷ 30 days ÷ 8 hours</p></div>
+    $("#otTool").innerHTML = `<div class="panel-head"><h2>Overtime</h2><p id="otFormula"></p></div>
       <div class="fields">
         <label class="field">Basic salary (SAR)<input type="text" inputmode="decimal" data-cfg="ot.salary" value="${fmtN(c.ot.salary, 2)}"></label>
+        <label class="field">Hours per day<input type="text" inputmode="decimal" data-cfg="ot.day" value="${fmtN(otDay(), 2)}"></label>
         <label class="field">Overtime hours<input type="text" inputmode="decimal" data-cfg="ot.hours" value="${fmtN(c.ot.hours, 2)}"></label>
         <label class="field">Rate multiplier<input type="text" inputmode="decimal" data-cfg="ot.mult" value="${fmtN(c.ot.mult, 2)}"></label>
       </div>
@@ -801,7 +804,8 @@ dialog.sheet { overflow-x: hidden; }
     if ($("#wishNote")) $("#wishNote").innerHTML = `${todo.length} to buy, <span class="num">${fmtSar(owed)}</span>${unpriced ? ` plus ${unpriced} without a price yet` : ""}.` +
       (owed > 0 && t.left > 0 ? ` At this month’s left over of <span class="num">${fmtSar(t.left)}</span>, that’s about <span class="num">${Math.ceil(owed / t.left)}</span> month${Math.ceil(owed / t.left) === 1 ? "" : "s"}.` : "");
     // tools
-    const hourly = (c.ot.salary || 0) / 240, otRate = hourly * (c.ot.mult || 0), otPay = otRate * (c.ot.hours || 0);
+    setText("#otFormula", `Hourly = salary ÷ 30 days ÷ ${fmtN(otDay(), 2)} hours`);
+    const hourly = (c.ot.salary || 0) / (30 * otDay()), otRate = hourly * (c.ot.mult || 0), otPay = otRate * (c.ot.hours || 0);
     if ($("#otOut")) $("#otOut").innerHTML = `<span class="big">${fmtSar(otPay)}</span><span class="muted num">${fmtN(hourly, 2)}/hr basic · ${fmtN(otRate, 2)}/hr overtime · ${fmtUgx(otPay * r)}</span>`;
     const fee = (c.fx.feePct || 0) / 100, amt = c.fx.amount || 0;
     if ($("#fxOut")) {
@@ -1145,7 +1149,7 @@ dialog.sheet { overflow-x: hidden; }
       touchMonth(); renderAll();
     } else if (act === "otToIncome") {
       const m = month(); if (!m) return;
-      const c = cfg(), pay = Math.round((c.ot.salary || 0) / 240 * (c.ot.mult || 0) * (c.ot.hours || 0) * 100) / 100;
+      const c = cfg(), pay = Math.round((c.ot.salary || 0) / (30 * otDay()) * (c.ot.mult || 0) * (c.ot.hours || 0) * 100) / 100;
       let line = (m.income || []).find(x => /overtime/i.test(x.name || ""));
       if (!line) { line = { id: rid(), name: "Overtime", cur: "SAR", amt: 0 }; (m.income = m.income || []).push(line); }
       line.amt = pay; line.cur = "SAR"; touchMonth(); renderAll();
