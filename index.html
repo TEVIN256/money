@@ -219,6 +219,9 @@ dialog.sheet { overflow-x: hidden; }
 .xrow .w small { color: var(--ink-3); }
 .xrow .a { font-family: var(--font-num); font-size: 13px; text-align: right; white-space: nowrap; }
 .install { display: grid; gap: 6px; }
+.xrow.trow { align-items: start; }
+.xrow.trow .w, .xrow.trow .a { white-space: normal; line-height: 1.35; }
+.xrow small { color: var(--ink-3); font-size: 12px; }
 .foot { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; }
 </style>
 </head>
@@ -291,6 +294,29 @@ dialog.sheet { overflow-x: hidden; }
     <div class="sheet-actions">
       <button class="btn ghost" type="button" id="xCancel">Cancel</button>
       <button class="btn" type="submit" id="xSave">Add expense</button>
+    </div>
+  </form>
+</dialog>
+<dialog class="sheet" id="tSheet" aria-labelledby="tTitle">
+  <form id="tForm" method="dialog" novalidate>
+    <div class="panel-head"><h2 id="tTitle">Log a transfer home</h2><p id="tMonth"></p></div>
+    <div class="fields">
+      <label class="field">SAR sent<input id="tSar" type="text" inputmode="decimal" placeholder="0" autocomplete="off"></label>
+      <label class="field">Fee (SAR)<input id="tFee" type="text" inputmode="decimal" placeholder="0" autocomplete="off"></label>
+      <label class="field">UGX received<input id="tUgx" type="text" inputmode="decimal" placeholder="from the receipt" autocomplete="off"></label>
+    </div>
+    <div class="note" id="tRate">Enter the amounts to see the rate you got.</div>
+    <div class="fields">
+      <label class="field">Service<input id="tSvc" type="text" list="tSvcList" placeholder="e.g. Western Union"></label>
+      <label class="field">Date<input id="tDate" type="date"></label>
+    </div>
+    <datalist id="tSvcList"></datalist>
+    <div class="field">Covers these lines (they get ticked as sent)<div class="chips" id="tChips"></div></div>
+    <label class="field">Note (optional)<input id="tNote" type="text" placeholder="e.g. reference number"></label>
+    <div class="msg err" id="tErr" hidden></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" type="button" id="tCancel">Cancel</button>
+      <button class="btn" type="submit">Log transfer</button>
     </div>
   </form>
 </dialog>
@@ -507,6 +533,9 @@ dialog.sheet { overflow-x: hidden; }
         <div style="display:grid;gap:20px;min-width:0">
           ${panel("income", "Income", "What comes in this month", incomeTable(m))}
           ${panel("home", "Money sent home", "UGX is what lands at home. Leave it blank to use the rate.", homeTable(m))}
+          <div class="panel" id="p-transfers"><div class="panel-head"><h2>Transfers</h2><p id="tSummary"></p></div>
+            <div class="xlist" id="tList"></div><div id="tRateNote"></div><div id="tCompare"></div>
+            <button class="add" data-act="openTransfer">+ Log transfer</button></div>
           ${panel("save", "Savings", "Money you put aside this month. Tick it once it’s saved.", saveTable(m))}
         </div>
         <div style="display:grid;gap:20px;min-width:0">
@@ -781,6 +810,7 @@ dialog.sheet { overflow-x: hidden; }
     }
     renderExpenses(m);
     renderGoals();
+    renderTransfers(m);
     renderTrend();
   }
 
@@ -887,6 +917,104 @@ dialog.sheet { overflow-x: hidden; }
     $("#toast").hidden = true;
   };
   $("#fab").onclick = openSheet;
+
+  // ---------- transfer log ----------
+  // month.transfers: [{id, d, service, sar, fee, ugx, lines: [home line ids], note}]. Rate = UGX ÷ SAR sent; "all-in" also counts the fee.
+  const tRate = t => (t.sar > 0 && t.ugx > 0 ? t.ugx / t.sar : null);
+  const tAllIn = t => (t.sar > 0 && t.ugx > 0 ? t.ugx / (t.sar + (t.fee || 0)) : null);
+  function renderTransfers(m) {
+    const el = $("#tList"); if (!el) return;
+    const list = (m.transfers || []).slice().sort((a, b) => (b.d || "").localeCompare(a.d || ""));
+    const sar = list.reduce((a, t) => a + (t.sar || 0), 0), fee = list.reduce((a, t) => a + (t.fee || 0), 0), ugx = list.reduce((a, t) => a + (t.ugx || 0), 0);
+    const planned = (m.home || []).reduce((a, x) => a + (x.sar || 0), 0), toGo = Math.max(0, planned - sar - fee);
+    setText("#tSummary", list.length ? `${fmtSar(sar)} sent · ${fmtSar(fee)} fees · ${fmtUgx(ugx)} received${toGo ? ` · ${fmtSar(toGo)} still to send` : ""}` : "Log each transfer to see the real rate and fees");
+    el.innerHTML = list.length ? list.map(t => {
+      const r = tRate(t), ai = tAllIn(t);
+      return `<div class="xrow trow">
+        <span class="d">${esc(dayLabel(t.d))}</span>
+        <span class="w">${esc(t.service || "Transfer")}${t.note ? ` <small>· ${esc(t.note)}</small>` : ""}<br><small>${r ? `${fmtN(r, 1)} UGX/SAR · all-in ${fmtN(ai, 1)}` : "UGX not entered"}${t.fee ? ` · fee ${fmtSar(t.fee)}` : ""}</small></span>
+        <span class="a">${fmtSar(t.sar)}<br><small>${t.ugx ? fmtUgx(t.ugx) : "—"}</small></span>
+        <button class="x" data-act="delt" data-id="${t.id}" aria-label="Remove transfer">×</button></div>`;
+    }).join("") : `<p class="muted" style="margin:0">No transfers logged for ${esc(ymLabel(S.ym))} yet.</p>`;
+    // offer the latest real rate as the month's rate
+    const latest = list.find(t => tRate(t));
+    const mr = m.rate || rate();
+    $("#tRateNote").innerHTML = latest && Math.abs(tRate(latest) - mr) >= 0.5
+      ? `<div class="note" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:8px">Your ${esc(dayLabel(latest.d))} transfer got <span class="num">${fmtN(tRate(latest), 1)}</span> UGX per SAR; this month is set to <span class="num">${fmtN(mr, 1)}</span>.<button class="linkbtn" data-act="useRate" data-rate="${Math.round(tRate(latest) * 100) / 100}">Use ${fmtN(tRate(latest), 1)}</button></div>` : "";
+    // compare services across every month
+    const by = {};
+    Object.values(S.months).forEach(mm => (mm.transfers || []).forEach(t => {
+      if (!tAllIn(t)) return;
+      const k = (t.service || "Transfer").trim(), key = k.toLowerCase();
+      const b = by[key] = by[key] || { name: k, n: 0, sar: 0, fee: 0, ugx: 0 };
+      b.n++; b.sar += t.sar; b.fee += t.fee || 0; b.ugx += t.ugx;
+    }));
+    const svcs = Object.values(by).map(b => ({ ...b, allIn: b.ugx / (b.sar + b.fee) })).sort((a, b) => b.allIn - a.allIn);
+    $("#tCompare").innerHTML = svcs.length > 1 ? `<div class="scroll" style="margin-top:10px"><table><thead><tr><th>Service</th><th class="r">Sent</th><th class="r">Fees</th><th class="r">All-in rate</th></tr></thead><tbody>
+      ${svcs.map((s, i) => `<tr><td style="padding:7px 6px">${esc(s.name)} ${i === 0 ? `<span class="pill good">Best deal</span>` : ""}<br><small class="muted">${s.n} transfer${s.n === 1 ? "" : "s"}</small></td><td class="calc">${fmtN(s.sar)}</td><td class="calc">${fmtN(s.fee, 2)}</td><td class="calc"><b>${fmtN(s.allIn, 1)}</b></td></tr>`).join("")}
+      </tbody></table></div><p class="muted" style="margin:6px 0 0;font-size:12.5px">All-in rate = UGX received for every SAR you paid, fee included. Higher is better. Counts all months.</p>`
+      : (svcs.length === 1 && list.length ? `<p class="muted" style="margin:8px 0 0;font-size:12.5px">Log transfers with another service to compare which gives more UGX.</p>` : "");
+  }
+
+  let tLines = new Set();
+  function tPreview() {
+    const sar = parseNum($("#tSar").value) || (tLines.size ? linesTotal() : 0), fee = parseNum($("#tFee").value) || 0, ugx = parseNum($("#tUgx").value) || 0;
+    $("#tRate").innerHTML = sar && ugx
+      ? `Rate <b class="num">${fmtN(ugx / sar, 1)}</b> UGX per SAR · all-in with fee <b class="num">${fmtN(ugx / (sar + fee), 1)}</b> · you paid <span class="num">${fmtSar(sar + fee)}</span>`
+      : sar ? `At this month’s rate that’s about <span class="num">${fmtUgx(sar * rate())}</span>. Add UGX received from the receipt to see your real rate.` : "Enter the amounts to see the rate you got.";
+  }
+  function openTransfer() {
+    const m = month(); if (!m) return;
+    tLines = new Set();
+    const svcs = [...new Set(Object.values(S.months).flatMap(mm => (mm.transfers || []).map(t => (t.service || "").trim())).filter(Boolean))];
+    $("#tSvcList").innerHTML = [...svcs, ...["Al Rajhi Tahweel", "Enjaz", "STC Pay", "Western Union", "WorldRemit", "Mukuru"].filter(s => !svcs.includes(s))].map(s => `<option value="${esc(s)}">`).join("");
+    const lines = (m.home || []).filter(x => (x.sar || 0) > 0 && (x.name || "").trim());
+    $("#tChips").innerHTML = lines.length ? lines.map(x => `<button type="button" class="chip" data-line="${x.id}" aria-pressed="false">${esc(x.name)} · ${fmtN(x.sar)}${x.sent ? " ✓" : ""}</button>`).join("") : `<span class="muted">No lines with an amount this month.</span>`;
+    ["tSar", "tFee", "tUgx", "tNote"].forEach(id => { $("#" + id).value = ""; });
+    $("#tSar").placeholder = "0";
+    let last = ""; try { last = localStorage.getItem("budget.lastService") || ""; } catch (e) {}
+    $("#tSvc").value = last;
+    const [y, mo] = S.ym.split("-").map(Number), lastDay = new Date(y, mo, 0).getDate(), dt = $("#tDate");
+    dt.min = S.ym + "-01"; dt.max = S.ym + "-" + String(lastDay).padStart(2, "0"); dt.value = todayIn(S.ym);
+    $("#tMonth").textContent = ymLabel(S.ym); $("#tErr").hidden = true; tPreview();
+    $("#tSheet").showModal();
+    setTimeout(() => $("#tSar").focus(), 50);
+  }
+  ["tSar", "tFee", "tUgx"].forEach(id => $("#" + id).addEventListener("input", tPreview));
+  $("#tChips").addEventListener("click", e => {
+    const c = e.target.closest(".chip"); if (!c) return;
+    const id = c.dataset.line, on = !tLines.has(id);
+    on ? tLines.add(id) : tLines.delete(id); c.setAttribute("aria-pressed", on);
+    $("#tSar").placeholder = linesTotal() ? fmtN(linesTotal(), 2) : "0";
+    tPreview();
+  });
+  const linesTotal = () => [...tLines].reduce((a, i) => a + ((month().home || []).find(x => x.id === i)?.sar || 0), 0);
+  $("#tCancel").onclick = () => $("#tSheet").close();
+  $("#tSheet").addEventListener("click", e => { if (e.target === $("#tSheet")) $("#tSheet").close(); });
+  $("#tForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const m = month(); if (!m) return;
+    const err = t => { $("#tErr").textContent = t; $("#tErr").hidden = false; };
+    const sar = parseNum($("#tSar").value) ?? (tLines.size ? linesTotal() : null);
+    if (!(sar > 0)) return err("Enter how many SAR you sent.");
+    const fee = parseNum($("#tFee").value), ugx = parseNum($("#tUgx").value);
+    if (fee != null && fee < 0) return err("The fee can’t be negative.");
+    const service = $("#tSvc").value.trim();
+    const t = { id: rid(), d: $("#tDate").value || todayIn(S.ym), service, sar, fee: fee || 0, ugx: ugx || null, lines: [...tLines], note: $("#tNote").value.trim() };
+    (m.transfers = m.transfers || []).push(t);
+    t.lines.forEach(id => { const x = (m.home || []).find(h => h.id === id); if (x) x.sent = true; });
+    try { if (service) localStorage.setItem("budget.lastService", service); } catch (x) {}
+    touchMonth(); $("#tSheet").close(); renderAll();
+    toast(`Logged ${fmtSar(sar)}${ugx ? " → " + fmtUgx(ugx) : ""}${t.lines.length ? ` · ${t.lines.length} line${t.lines.length === 1 ? "" : "s"} ticked` : ""}`, false);
+  });
+  function deleteTransfer(id) {
+    const m = month(); const i = (m.transfers || []).findIndex(t => t.id === id); if (i < 0) return;
+    const [gone] = m.transfers.splice(i, 1);
+    // untick lines this transfer ticked, unless another transfer still covers them
+    (gone.lines || []).forEach(lid => { if (!m.transfers.some(t => (t.lines || []).includes(lid))) { const x = (m.home || []).find(h => h.id === lid); if (x) x.sent = false; } });
+    touchMonth(); renderAll();
+    toast(`Removed the ${fmtSar(gone.sar)} transfer`, false);
+  }
 
   // ---------- home screen ----------
   const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -997,12 +1125,20 @@ dialog.sheet { overflow-x: hidden; }
       if (i >= 0) { list.splice(i, 1); touch(b.dataset.list); renderAll(); }
     } else if (act === "openSheet") {
       openSheet();
+    } else if (act === "openTransfer") {
+      openTransfer();
+    } else if (act === "delt") {
+      deleteTransfer(b.dataset.id);
+    } else if (act === "useRate") {
+      const m = month(), v = Number(b.dataset.rate); if (!m || !(v > 0)) return;
+      m.rate = v; (m.spend || []).forEach(x => { if ((x.log || []).length) syncSpent(x, v); });
+      touchMonth(); renderAll(); toast(`${ymShort(S.ym)} now uses ${fmtN(v, 1)} UGX per SAR`, false);
     } else if (act === "delx") {
       const gone = removeEntry(S.ym, b.dataset.line, b.dataset.id);
       if (gone) toast(`Removed ${gone.cur === "UGX" ? fmtUgx(gone.amt) : fmtSar(gone.amt)}`, false);
     } else if (act === "copyPrev") {
       const src = clone(S.months[b.dataset.from]);
-      S.months[S.ym] = { ym: S.ym, rate: src.rate || 1000, income: src.income || [], home: (src.home || []).map(x => ({ ...x, sent: false })), spend: (src.spend || []).map(x => ({ ...x, spent: null, log: [] })), save: (src.save || []).map(x => ({ ...x, saved: false })) };
+      S.months[S.ym] = { ym: S.ym, rate: src.rate || 1000, income: src.income || [], home: (src.home || []).map(x => ({ ...x, sent: false })), spend: (src.spend || []).map(x => ({ ...x, spent: null, log: [] })), transfers: [], save: (src.save || []).map(x => ({ ...x, saved: false })) };
       touchMonth(); renderAll();
     } else if (act === "blank") {
       S.months[S.ym] = { ym: S.ym, rate: lastRate() || 1000, income: [{ id: rid(), name: "Salary", cur: "SAR", amt: null }], home: [], spend: [], save: [] };
