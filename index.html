@@ -175,6 +175,18 @@ tr.over td.calc { color: var(--bad); font-weight: 600; }
 .msg { font-size: 13px; border-radius: 9px; padding: 9px 11px; background: var(--sunk); color: var(--ink-2); }
 .msg.err { background: var(--bad-soft); color: var(--bad); }
 #p-savings td:first-child input { min-width: 140px; }
+.goals { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.goal { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 8px; min-width: 0; }
+.goal-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.goal-top b { font-family: var(--font-display); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbar { height: 10px; background: var(--sunk); border-radius: 5px; overflow: hidden; }
+.gbar > div { height: 100%; background: var(--save); border-radius: 5px; transition: width .3s; }
+.goal-nums { font-size: 13px; color: var(--ink); }
+.goal-sub { font-size: 12.5px; color: var(--ink-3); line-height: 1.45; }
+.goal .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.goal .field input { padding: 6px 8px; font-size: 13px; border: 1px solid var(--line); background: var(--bg); text-align: right; }
+.pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.pill:empty { display: none; }
 td input.logged { color: var(--spend); font-weight: 600; cursor: default; }
 
 /* quick expense */
@@ -504,6 +516,7 @@ dialog.sheet { overflow-x: hidden; }
             <button class="add" data-act="openSheet">+ Add expense</button></div>
         </div>
       </section>
+      ${cfg().savings.length ? `<section class="panel" id="p-goals"><div class="panel-head"><h2>Goal progress</h2><p>Counts every ticked line linked to a goal, across all months</p></div>${goalsHTML()}</section>` : ""}
       <section class="grid2">
         ${panel("savings", "Savings plan", "Monthly targets and where they get you", savingsTable())}
         ${panel("wish", "Things to buy", "One-off purchases, ticked off as you get them", wishTable())}
@@ -555,9 +568,10 @@ dialog.sheet { overflow-x: hidden; }
       <td>${inp("home", x.id, "name", x.name, "", "What for", "Purpose")}</td>
       <td style="width:100px">${inp("home", x.id, "sar", fmtN(x.sar, 2), "n", "0", "SAR")}</td>
       <td style="width:130px">${inp("home", x.id, "ugx", x.ugx != null ? fmtN(x.ugx) : "", "n", fmtN((x.sar || 0) * r), "UGX")}</td>
+      <td style="width:96px">${goalSel("home", x)}</td>
       ${del("home", x.id)}</tr>`).join("");
-    return `<div class="scroll"><table><thead><tr><th title="Tick when sent">Sent</th><th>For</th><th class="r">SAR</th><th class="r">UGX</th><th></th></tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td></td><td>Total</td><td class="r num" id="f-homeSar"></td><td class="r num" id="f-homeUgx"></td><td></td></tr></tfoot></table></div>
+    return `<div class="scroll"><table><thead><tr><th title="Tick when sent">Sent</th><th>For</th><th class="r">SAR</th><th class="r">UGX</th><th title="Savings goal this counts toward">Goal</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td></td><td>Total</td><td class="r num" id="f-homeSar"></td><td class="r num" id="f-homeUgx"></td><td></td><td></td></tr></tfoot></table></div>
       <div class="note" id="homeNote"></div>${addBtn("home", "Add line")}`;
   }
   function spendTable(m) {
@@ -578,11 +592,79 @@ dialog.sheet { overflow-x: hidden; }
       <td>${inp("save", x.id, "name", x.name, "", "What for", "Saving for")}</td>
       <td style="width:66px">${curSel("save", x.id, x.cur)}</td>
       <td style="width:110px">${inp("save", x.id, "amt", fmtN(x.amt, 2), "n", "0", "Amount")}</td>
+      <td style="width:96px">${goalSel("save", x)}</td>
       ${del("save", x.id)}</tr>`).join("");
-    return `<div class="scroll"><table><thead><tr><th title="Tick when saved">Saved</th><th>For</th><th></th><th class="r">Amount</th><th></th></tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td></td><td colspan="2">Total (SAR)</td><td class="r num" id="f-save"></td><td></td></tr></tfoot></table></div>
+    return `<div class="scroll"><table><thead><tr><th title="Tick when saved">Saved</th><th>For</th><th></th><th class="r">Amount</th><th title="Savings goal this counts toward">Goal</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td></td><td colspan="2">Total (SAR)</td><td class="r num" id="f-save"></td><td></td><td></td></tr></tfoot></table></div>
       <div class="note" id="saveNote"></div>${addBtn("save", "Add saving")}`;
   }
+  // ---------- savings goals ----------
+  // A home/save line counts toward a goal via line.goal (goal id). Undefined = guess from the names; null = not linked.
+  const STOP = new Set(["saving", "to", "the", "for", "and", "invest", "fund", "fixed", "my", "a", "of"]);
+  const words = s => new Set(String(s || "").toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).map(w => w.replace(/s$/, "")).filter(w => w.length > 1 && !STOP.has(w)));
+  function guessGoal(name) {
+    const lw = words(name); if (!lw.size) return null;
+    let best = null, score = 0, tie = false;
+    cfg().savings.forEach(g => {
+      const n = [...words(g.name)].filter(w => lw.has(w)).length;
+      if (n > score) { best = g.id; score = n; tie = false; } else if (n && n === score) tie = true;
+    });
+    return score && !tie ? best : null;
+  }
+  const goalOf = x => (x.goal === undefined ? guessGoal(x.name) : x.goal);
+  function goalSel(list, x) {
+    const gs = cfg().savings; if (!gs.length) return `<span class="muted">—</span>`;
+    const cur = goalOf(x);
+    return `<select data-list="${list}" data-id="${x.id}" data-field="goal" aria-label="Savings goal"><option value="">—</option>${gs.map(g => `<option value="${g.id}" ${g.id === cur ? "selected" : ""}>${esc(g.name || "Goal")}</option>`).join("")}</select>`;
+  }
+  const goalTarget = g => (g.target != null ? g.target : (g.sar || 0) * Math.round((cfg().years || 0) * 12));
+  function goalStats(g) {
+    const ks = Object.keys(S.months).sort();
+    let saved = g.start || 0, months = 0, cur = { planned: 0, done: 0 };
+    ks.forEach(k => {
+      const m = S.months[k], r = m.rate || rate();
+      const lines = [...(m.home || []).map(x => ({ amt: x.sar || 0, done: !!x.sent, x })), ...(m.save || []).map(x => ({ amt: toSar(x.amt, x.cur, r), done: !!x.saved, x }))].filter(l => goalOf(l.x) === g.id && l.amt > 0);
+      if (lines.length) months++;
+      lines.forEach(l => { if (l.done) saved += l.amt; });
+      if (k === S.ym) lines.forEach(l => { cur.planned += l.amt; if (l.done) cur.done += l.amt; });
+    });
+    return { saved, months, cur, target: goalTarget(g) };
+  }
+  function goalsHTML() {
+    return `<div class="goals">${cfg().savings.map(g => `<div class="goal" id="g-${g.id}">
+      <div class="goal-top"><b>${esc(g.name || "Goal")}</b><span class="pill" id="g-${g.id}-pill"></span></div>
+      <div class="gbar"><div id="g-${g.id}-bar"></div></div>
+      <div class="goal-nums num" id="g-${g.id}-nums"></div>
+      <div class="goal-sub" id="g-${g.id}-sub"></div>
+      <div class="fields">
+        <label class="field">Target (SAR)${inp("savings", g.id, "target", g.target != null ? fmtN(g.target, 2) : "", "n", fmtN(goalTarget({ ...g, target: null })), "Target in SAR")}</label>
+        <label class="field">Saved before (SAR)${inp("savings", g.id, "start", fmtN(g.start, 2), "n", "0", "Already saved before using the app")}</label>
+      </div></div>`).join("")}</div>`;
+  }
+  function renderGoals() {
+    if (!$("#p-goals")) return;
+    const r = rate();
+    cfg().savings.forEach(g => {
+      const st = goalStats(g), pct = st.target ? Math.min(100, (st.saved / st.target) * 100) : 0, left = Math.max(0, st.target - st.saved);
+      const bar = $(`#g-${g.id}-bar`); if (!bar) return;
+      bar.style.width = pct + "%";
+      setText(`#g-${g.id} .goal-top b`, g.name || "Goal");
+      setText(`#g-${g.id}-nums`, `${fmtN(st.saved, 2)} of ${fmtN(st.target)} SAR · ${Math.floor(pct)}%`);
+      const pace = g.sar || (st.months ? (st.saved - (g.start || 0)) / st.months : 0);
+      let eta = "";
+      if (st.target && left === 0) eta = "Goal reached";
+      else if (pace > 0 && st.target) { const n = Math.ceil(left / pace); eta = `${fmtN(left)} SAR to go · about ${n} month${n === 1 ? "" : "s"} (${ymLabel(ymAdd(S.ym, n))}) at ${fmtN(pace)}/month`; }
+      else if (st.target) eta = `${fmtN(left)} SAR to go`;
+      const tm = st.cur.planned ? `This month: ${fmtN(st.cur.done, 2)} of ${fmtN(st.cur.planned, 2)} SAR put away` : "Nothing linked to this goal this month";
+      $(`#g-${g.id}-sub`).innerHTML = `${esc(tm)}<br>${esc(eta)}${st.saved ? ` · <span class="num">${fmtUgx(st.saved * r)}</span>` : ""}`;
+      const pill = $(`#g-${g.id}-pill`);
+      if (st.target && left === 0) { pill.className = "pill good"; pill.textContent = "✓ Reached"; }
+      else if (st.cur.planned && st.cur.done >= st.cur.planned) { pill.className = "pill good"; pill.textContent = "✓ Done this month"; }
+      else if (st.cur.planned) { pill.className = "pill warn"; pill.textContent = "Not yet this month"; }
+      else { pill.className = "pill"; pill.textContent = ""; }
+    });
+  }
+
   function savingsTable() {
     const c = cfg();
     const rows = c.savings.map(x => `<tr>
@@ -698,6 +780,7 @@ dialog.sheet { overflow-x: hidden; }
       else { const net = amt * (1 - fee); $("#fxOut").innerHTML = `<span class="big">${fmtUgx(net * r)}</span><span class="muted num">arrives from ${fmtSar(amt)} · fee ${fmtSar(amt - net)}</span>`; }
     }
     renderExpenses(m);
+    renderGoals();
     renderTrend();
   }
 
@@ -867,7 +950,7 @@ dialog.sheet { overflow-x: hidden; }
     const m = month(); return m ? (m[name] = m[name] || []) : [];
   }
   const touch = name => (name === "savings" || name === "wish" ? touchConfig() : touchMonth());
-  const NUMERIC = new Set(["amt", "sar", "ugx", "plan", "spent"]);
+  const NUMERIC = new Set(["amt", "sar", "ugx", "plan", "spent", "target", "start"]);
 
   document.addEventListener("input", e => {
     const t = e.target;
@@ -885,6 +968,7 @@ dialog.sheet { overflow-x: hidden; }
     if (!t.dataset.list) return;
     const item = listOf(t.dataset.list).find(x => x.id === t.dataset.id); if (!item) return;
     if (t.type === "checkbox") { item[t.dataset.field] = t.checked; t.closest("tr").classList.toggle("done", t.checked); }
+    else if (t.tagName === "SELECT" && t.dataset.field === "goal") item.goal = t.value || null;
     else if (t.tagName === "SELECT") {
       item.cur = t.value;
       if (t.dataset.list === "spend" && (item.log || []).length) { syncSpent(item, month().rate || rate()); touch("spend"); renderAll(); return; }
